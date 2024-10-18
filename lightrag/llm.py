@@ -48,50 +48,57 @@ async def openai_complete_if_cache(
         )
     return response.choices[0].message.content
 
+
+g_hf_model = None
+g_hf_tokenizer = None
+
 async def hf_model_if_cache(
     model, prompt, system_prompt=None, history_messages=[], **kwargs
 ) -> str:
-    model_name = model
-    hf_tokenizer = AutoTokenizer.from_pretrained(model_name,device_map = 'auto')
-    if hf_tokenizer.pad_token == None:
-        # print("use eos token")
-        hf_tokenizer.pad_token = hf_tokenizer.eos_token
-    hf_model = AutoModelForCausalLM.from_pretrained(model_name,device_map = 'auto')
-    hashing_kv: BaseKVStorage = kwargs.pop("hashing_kv", None)
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.extend(history_messages)
-    messages.append({"role": "user", "content": prompt})
+    global g_hf_model, g_hf_tokenizer
+    with torch.device("cuda"):
+        if not g_hf_model:
+            model_name = model
+            g_hf_tokenizer = AutoTokenizer.from_pretrained(model_name)
+            if g_hf_tokenizer.pad_token == None:
+                # print("use eos token")
+                g_hf_tokenizer.pad_token = g_hf_tokenizer.eos_token
+            g_hf_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype='float16')
+        hashing_kv: BaseKVStorage = kwargs.pop("hashing_kv", None)
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.extend(history_messages)
+        messages.append({"role": "user", "content": prompt})
 
-    if hashing_kv is not None:
-        args_hash = compute_args_hash(model, messages)
-        if_cache_return = await hashing_kv.get_by_id(args_hash)
-        if if_cache_return is not None:
-            return if_cache_return["return"]
-    input_prompt = ''
-    try:
-        input_prompt = hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)    
-    except:
+        if hashing_kv is not None:
+            args_hash = compute_args_hash(model, messages)
+            if_cache_return = await hashing_kv.get_by_id(args_hash)
+            if if_cache_return is not None:
+                return if_cache_return["return"]
+        input_prompt = ''
         try:
-            ori_message = copy.deepcopy(messages)
-            if messages[0]['role'] == "system":
-                messages[1]['content'] = "<system>" + messages[0]['content'] + "</system>\n" + messages[1]['content']
-                messages = messages[1:]
-                input_prompt = hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)    
-        except:      
-            len_message = len(ori_message)
-            for msgid in range(len_message):
-                input_prompt =input_prompt+ '<'+ori_message[msgid]['role']+'>'+ori_message[msgid]['content']+'</'+ori_message[msgid]['role']+'>\n'
-    
-    input_ids = hf_tokenizer(input_prompt, return_tensors='pt', padding=True, truncation=True).to("cuda")
-    output = hf_model.generate(**input_ids, max_new_tokens=200, num_return_sequences=1,early_stopping = True)
-    response_text = hf_tokenizer.decode(output[0], skip_special_tokens=True)
-    if hashing_kv is not None:
-        await hashing_kv.upsert(
-            {args_hash: {"return": response_text, "model": model}}
-        )
-    return response_text
+            input_prompt = g_hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)    
+        except:
+            try:
+                ori_message = copy.deepcopy(messages)
+                if messages[0]['role'] == "system":
+                    messages[1]['content'] = "<system>" + messages[0]['content'] + "</system>\n" + messages[1]['content']
+                    messages = messages[1:]
+                    input_prompt = g_hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)    
+            except:      
+                len_message = len(ori_message)
+                for msgid in range(len_message):
+                    input_prompt =input_prompt+ '<'+ori_message[msgid]['role']+'>'+ori_message[msgid]['content']+'</'+ori_message[msgid]['role']+'>\n'
+        
+        input_ids = g_hf_tokenizer(input_prompt, return_tensors='pt', padding=True, truncation=True).to("cuda")
+        output = g_hf_model.generate(**input_ids, max_new_tokens=200, num_return_sequences=1,early_stopping = True)
+        response_text = g_hf_tokenizer.decode(output[0], skip_special_tokens=True)
+        if hashing_kv is not None:
+            await hashing_kv.upsert(
+                {args_hash: {"return": response_text, "model": model}}
+            )
+        return response_text
 
 async def ollama_model_if_cache(
     model, prompt, system_prompt=None, history_messages=[], **kwargs

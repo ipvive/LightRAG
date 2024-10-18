@@ -61,7 +61,7 @@ class JsonKVStorage(BaseKVStorage):
 
 @dataclass
 class NanoVectorDBStorage(BaseVectorStorage):
-    cosine_better_than_threshold: float = 0.2
+    cosine_better_than_threshold: float = 0.1
 
     def __post_init__(self):
 

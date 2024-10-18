@@ -400,15 +400,16 @@ async def local_query(
         keywords = ', '.join(keywords)
     except json.JSONDecodeError as e:
         try:
-            result = result.replace(kw_prompt[:-1],'').replace('user','').replace('model','').strip()
+            result = result.replace("system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.", "").strip()
+            result = result.replace(kw_prompt[:-1],'').replace('user','').replace('model','').replace("assistant\n", "").strip().strip('```').strip('json')
             result = '{' + result.split('{')[1].split('}')[0] + '}'
-
             keywords_data = json.loads(result)
             keywords = keywords_data.get("low_level_keywords", [])
             keywords = ', '.join(keywords)
         # Handle parsing error
         except json.JSONDecodeError as e:
-            print(f"JSON parsing error: {e}")
+            logger.error(f"JSON parsing error: {e}")
+            logger.debug(f"tried to parse: {result}")
             return PROMPTS["fail_response"]
     if keywords:
         context = await _build_local_query_context(
@@ -421,6 +422,7 @@ async def local_query(
     if query_param.only_need_context:
         return context
     if context is None:
+        logger.debug(f"failing due to no context (3)")
         return PROMPTS["fail_response"]
     sys_prompt_temp = PROMPTS["rag_response"]
     sys_prompt = sys_prompt_temp.format(
@@ -632,6 +634,7 @@ async def global_query(
     except json.JSONDecodeError as e:
         try:
             result = result.replace(kw_prompt[:-1],'').replace('user','').replace('model','').strip()
+            result = result.replace("system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.", "").strip()
             result = '{' + result.split('{')[1].split('}')[0] + '}'
 
             keywords_data = json.loads(result)
@@ -640,7 +643,8 @@ async def global_query(
     
         except json.JSONDecodeError as e:
             # Handle parsing error
-            print(f"JSON parsing error: {e}")
+            logger.error(f"JSON parsing error: {e}")
+            logger.debug(f"tried to parse: {result}")
             return PROMPTS["fail_response"]
     if keywords:
         context = await _build_global_query_context(
@@ -655,6 +659,7 @@ async def global_query(
     if query_param.only_need_context:
         return context
     if context is None:
+        logger.debug(f"failing due to no context (1)")
         return PROMPTS["fail_response"]
     
     sys_prompt_temp = PROMPTS["rag_response"]
@@ -859,9 +864,9 @@ async def hybrid_query(
         ll_keywords = ', '.join(ll_keywords)
     except json.JSONDecodeError as e:
         try:
-            result = result.replace(kw_prompt[:-1],'').replace('user','').replace('model','').strip()
+            result = result.replace("system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.", "").strip()
+            result = result.replace(kw_prompt[:-1],'').replace('user','').replace('model','').replace("assistant\n", "").strip().strip('```').strip('json')
             result = '{' + result.split('{')[1].split('}')[0] + '}'
-
             keywords_data = json.loads(result)
             hl_keywords = keywords_data.get("high_level_keywords", [])
             ll_keywords = keywords_data.get("low_level_keywords", [])
@@ -869,7 +874,8 @@ async def hybrid_query(
             ll_keywords = ', '.join(ll_keywords)
         # Handle parsing error
         except json.JSONDecodeError as e:
-            print(f"JSON parsing error: {e}")
+            logger.error(f"JSON parsing error: {e}")
+            logger.debug(f"tried to parse: {result}")
             return PROMPTS["fail_response"]
 
     if ll_keywords:
@@ -896,6 +902,7 @@ async def hybrid_query(
     if query_param.only_need_context:
         return context
     if context is None:
+        logger.debug(f"failing due to no context (2)")
         return PROMPTS["fail_response"]
     
     sys_prompt_temp = PROMPTS["rag_response"]
@@ -974,6 +981,7 @@ async def naive_query(
     use_model_func = global_config["llm_model_func"]
     results = await chunks_vdb.query(query, top_k=query_param.top_k)
     if not len(results):
+        logger.debug(f"failing due to no results")
         return PROMPTS["fail_response"]
     chunks_ids = [r["id"] for r in results]
     chunks = await text_chunks_db.get_by_ids(chunks_ids)

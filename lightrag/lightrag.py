@@ -217,13 +217,13 @@ class LightRAG:
                 relationships_vdb=self.relationships_vdb,
                 global_config=asdict(self),
             )
+            await self.full_docs.upsert(new_docs)
+            await self.text_chunks.upsert(inserting_chunks)
             if maybe_new_kg is None:
                 logger.warning("No new entities and relationships found")
                 return
             self.chunk_entity_relation_graph = maybe_new_kg
 
-            await self.full_docs.upsert(new_docs)
-            await self.text_chunks.upsert(inserting_chunks)
         finally:
             await self._insert_done()
 

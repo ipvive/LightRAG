@@ -909,6 +909,7 @@ async def hybrid_query(
     sys_prompt = sys_prompt_temp.format(
         context_data=context, response_type=query_param.response_type
     )
+    print(f"use_model_func({query}, {sys_prompt})")
     response = await use_model_func(
         query,
         system_prompt=sys_prompt,
